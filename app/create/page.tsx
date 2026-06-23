@@ -55,9 +55,14 @@ export default function CreatePage() {
     <main className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
       <div className="max-w-sm w-full space-y-8">
         <div className="space-y-1">
-          <Link href="/" className="text-text-muted text-sm hover:text-accent transition-colors">
-            ← Back
-          </Link>
+          <div className="flex items-center justify-between">
+            <Link href="/" className="text-text-muted text-sm hover:text-accent transition-colors">
+              ← Back
+            </Link>
+            <Link href="/pricing" className="text-accent text-sm hover:underline">
+              See plans →
+            </Link>
+          </div>
           <h1 className="text-3xl font-bold text-text-primary mt-2">Create Event</h1>
           <p className="text-text-muted text-sm">
             Share the QR code with your guests after creating.
