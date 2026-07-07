@@ -106,6 +106,10 @@ export default function LandingPage() {
             ))}
           </div>
         </div>
+
+        <Link href="/reviews" className="block text-accent text-sm hover:underline">
+          See what hosts are saying →
+        </Link>
       </div>
     </main>
   );

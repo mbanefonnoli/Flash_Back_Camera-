@@ -118,6 +118,10 @@ export default function PricingPage() {
           <br />
           before you develop. No hidden per-photo fees.
         </p>
+
+        <Link href="/reviews" className="block text-accent text-sm text-center hover:underline">
+          See what hosts are saying →
+        </Link>
       </div>
     </main>
   );

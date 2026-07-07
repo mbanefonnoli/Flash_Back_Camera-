@@ -19,7 +19,7 @@ Browser → /app/api/** → Supabase (server-side only)
 
 - **Framework**: Next.js 14 App Router
 - **Styling**: Tailwind CSS (dark `#0A0A0A` bg, amber `#F5A623` accent)
-- **Database**: Supabase Postgres (`events`, `photos` tables)
+- **Database**: Supabase Postgres (`events`, `photos`, `reviews` tables)
 - **Storage**: Supabase Storage (`photos` bucket — must be **public**)
 - **Auth**: None — host password only, guest name in localStorage
 
@@ -52,10 +52,18 @@ create table photos (
   storage_path text not null,
   created_at timestamptz default now()
 );
+
+create table reviews (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  rating int not null check (rating between 1 and 5),
+  body text not null,
+  created_at timestamptz default now()
+);
 ```
 
 Also create a `photos` storage bucket set to **public** in Supabase Storage.
-Disable RLS on both tables (or make policies permissive for anon role).
+Disable RLS on all tables (or make policies permissive for anon role).
 
 ## API routes
 
@@ -67,6 +75,8 @@ Disable RLS on both tables (or make policies permissive for anon role).
 | GET | `/api/events/[code]/photos` | Photos (real URLs only after developed) |
 | GET | `/api/events/[code]/stats` | `{ photoCount, guestCount, developed, guestShots? }` |
 | POST | `/api/photos/upload` | Multipart upload (image, eventCode, guestName) |
+| GET | `/api/reviews` | List reviews, newest first |
+| POST | `/api/reviews` | Submit a review `{ name, rating, body }`, shown immediately |
 
 ## Page map
 
@@ -74,6 +84,8 @@ Disable RLS on both tables (or make policies permissive for anon role).
 |---|---|
 | `/` | Landing page |
 | `/create` | Host: create event |
+| `/pricing` | Guest-count based one-time-payment plans |
+| `/reviews` | Public reviews — list + submission form |
 | `/host/[code]` | Host dashboard (placeholder grid, QR, develop button) |
 | `/host/[code]/gallery` | Host: post-develop full gallery |
 | `/join/[code]` | Guest: enter name |
