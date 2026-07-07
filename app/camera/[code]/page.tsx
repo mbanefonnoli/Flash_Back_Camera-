@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import FilmCounter from "@/components/FilmCounter";
 import Link from "next/link";
 
-const MAX_DIM = 800;
-const JPEG_QUALITY = 0.8;
+const MAX_DIM = 2048;
+const JPEG_QUALITY = 0.92;
 
 type EventData = { name: string; developed: boolean; maxShots: number; maxGuests: number };
 
