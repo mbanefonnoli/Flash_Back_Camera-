@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
+import { getPublicUrl } from "@/lib/supabase-public";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export async function GET(
 
   const { data, error } = await supabase
     .from("events")
-    .select("name, developed, max_shots, max_guests")
+    .select("name, developed, max_shots, max_guests, cover_path")
     .eq("code", code)
     .single();
 
@@ -27,6 +28,7 @@ export async function GET(
       developed: data.developed,
       maxShots: data.max_shots ?? 27,
       maxGuests: data.max_guests ?? 0,
+      coverUrl: data.cover_path ? getPublicUrl(data.cover_path) : null,
     },
   });
 }

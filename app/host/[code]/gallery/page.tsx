@@ -4,9 +4,11 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { PhotoWithUrl } from "@/lib/supabase";
 import PhotoGrid from "@/components/PhotoGrid";
+import ReviewPrompt from "@/components/ReviewPrompt";
+import EventBackground from "@/components/EventBackground";
 import Link from "next/link";
 
-type EventData = { name: string; developed: boolean };
+type EventData = { name: string; developed: boolean; coverUrl: string | null };
 
 export default function HostGalleryPage({ params }: { params: { code: string } }) {
   const router = useRouter();
@@ -46,9 +48,7 @@ export default function HostGalleryPage({ params }: { params: { code: string } }
     setVerifying(true);
 
     try {
-      // Verify password by attempting a dry-run against the develop endpoint
-      // (already developed, so it returns { success: true, data: { already: true } })
-      const res = await fetch(`/api/events/${code}/develop`, {
+      const res = await fetch(`/api/events/${code}/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: pwInput }),
@@ -94,7 +94,8 @@ export default function HostGalleryPage({ params }: { params: { code: string } }
   }
 
   return (
-    <main className="min-h-screen bg-background pb-12">
+    <main className="min-h-screen pb-12">
+      <EventBackground url={event.coverUrl} intensity="strong" />
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background/90 backdrop-blur border-b border-surface px-4 py-3 flex items-center justify-between">
         <div>
@@ -147,6 +148,8 @@ export default function HostGalleryPage({ params }: { params: { code: string } }
         zipName={`flashback-${code}`}
         onDelete={adminMode ? handleDelete : undefined}
       />
+
+      {!adminMode && <ReviewPrompt />}
 
       {/* Password modal */}
       {showPwModal && (

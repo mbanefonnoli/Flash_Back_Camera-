@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
+import { verifyPassword } from "@/lib/password";
+import { rateLimit, clientKey } from "@/lib/rate-limit";
 
 export async function DELETE(
   request: Request,
@@ -7,6 +9,14 @@ export async function DELETE(
 ) {
   const code = params.code.toUpperCase();
   const { id } = params;
+
+  if (!rateLimit(clientKey(request, `delete:${code}`), 30, 60_000)) {
+    return NextResponse.json(
+      { success: false, error: "Too many requests. Try again in a minute." },
+      { status: 429 }
+    );
+  }
+
   const { password } = await request.json();
 
   if (!password) {
@@ -25,7 +35,7 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: "Event not found." }, { status: 404 });
   }
 
-  if (event.host_password !== password) {
+  if (!(await verifyPassword(password, event.host_password))) {
     return NextResponse.json({ success: false, error: "Incorrect password." }, { status: 401 });
   }
 

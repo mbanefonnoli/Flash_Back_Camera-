@@ -9,7 +9,7 @@ export async function POST(
 ) {
   const code = params.code.toUpperCase();
 
-  if (!rateLimit(clientKey(request, `develop:${code}`), 10, 60_000)) {
+  if (!rateLimit(clientKey(request, `verify:${code}`), 10, 60_000)) {
     return NextResponse.json(
       { success: false, error: "Too many attempts. Try again in a minute." },
       { status: 429 }
@@ -24,31 +24,18 @@ export async function POST(
 
   const supabase = createServerClient();
 
-  const { data: event, error: fetchError } = await supabase
+  const { data: event } = await supabase
     .from("events")
-    .select("host_password, developed")
+    .select("host_password")
     .eq("code", code)
     .single();
 
-  if (fetchError || !event) {
+  if (!event) {
     return NextResponse.json({ success: false, error: "Event not found." }, { status: 404 });
   }
 
   if (!(await verifyPassword(password, event.host_password))) {
     return NextResponse.json({ success: false, error: "Incorrect password." }, { status: 401 });
-  }
-
-  if (event.developed) {
-    return NextResponse.json({ success: true, data: { already: true } });
-  }
-
-  const { error: updateError } = await supabase
-    .from("events")
-    .update({ developed: true })
-    .eq("code", code);
-
-  if (updateError) {
-    return NextResponse.json({ success: false, error: updateError.message }, { status: 500 });
   }
 
   return NextResponse.json({ success: true });

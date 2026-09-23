@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
 import { getPublicUrl } from "@/lib/supabase-public";
+import { rateLimit, clientKey } from "@/lib/rate-limit";
+import { CONTENT_TYPES, sniffImageType } from "@/lib/image";
+
+const MAX_BYTES = 12 * 1024 * 1024;
+const MAX_GUEST_NAME = 40;
 
 export async function POST(request: Request) {
+  if (!rateLimit(clientKey(request, "upload"), 30, 60_000)) {
+    return NextResponse.json(
+      { success: false, error: "Slow down — too many photos at once." },
+      { status: 429 }
+    );
+  }
+
   const formData = await request.formData();
   const image = formData.get("image") as File | null;
   const eventCode = (formData.get("eventCode") as string | null)?.trim().toUpperCase();
@@ -11,6 +23,27 @@ export async function POST(request: Request) {
   if (!image || !eventCode || !guestName) {
     return NextResponse.json(
       { success: false, error: "image, eventCode, and guestName are required." },
+      { status: 400 }
+    );
+  }
+
+  if (guestName.length > MAX_GUEST_NAME) {
+    return NextResponse.json({ success: false, error: "Guest name is too long." }, { status: 400 });
+  }
+
+  if (image.size > MAX_BYTES) {
+    return NextResponse.json(
+      { success: false, error: "Photo is too large (12MB max)." },
+      { status: 400 }
+    );
+  }
+
+  const buffer = Buffer.from(await image.arrayBuffer());
+  const imageType = sniffImageType(buffer);
+
+  if (!imageType) {
+    return NextResponse.json(
+      { success: false, error: "Only JPEG, PNG, and WebP images are accepted." },
       { status: 400 }
     );
   }
@@ -65,12 +98,11 @@ export async function POST(request: Request) {
     }
   }
 
-  const buffer = Buffer.from(await image.arrayBuffer());
-  const storagePath = `${eventCode}/${crypto.randomUUID()}.jpg`;
+  const storagePath = `${eventCode}/${crypto.randomUUID()}.${imageType}`;
 
   const { error: storageError } = await supabase.storage
     .from("photos")
-    .upload(storagePath, buffer, { contentType: "image/jpeg", upsert: false });
+    .upload(storagePath, buffer, { contentType: CONTENT_TYPES[imageType], upsert: false });
 
   if (storageError) {
     return NextResponse.json({ success: false, error: storageError.message }, { status: 500 });

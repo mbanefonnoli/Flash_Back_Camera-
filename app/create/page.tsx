@@ -1,10 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 const SHOT_OPTIONS = [12, 24, 27, 36];
+const COVER_MAX_DIM = 1600;
+const COVER_QUALITY = 0.85;
+
+// Shrink before upload so a 10MB phone photo doesn't become the event background.
+async function downscaleImage(file: File): Promise<Blob> {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("Could not read that image."));
+      img.src = objectUrl;
+    });
+
+    const ratio = Math.min(COVER_MAX_DIM / img.width, COVER_MAX_DIM / img.height, 1);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.width * ratio);
+    canvas.height = Math.round(img.height * ratio);
+    canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error("Could not process that image."))),
+        "image/jpeg",
+        COVER_QUALITY
+      );
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 
 export default function CreatePage() {
   const router = useRouter();
@@ -12,8 +43,35 @@ export default function CreatePage() {
   const [password, setPassword] = useState("");
   const [maxShots, setMaxShots] = useState(27);
   const [maxGuests, setMaxGuests] = useState(0);
+  const [cover, setCover] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const coverInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!cover) { setCoverPreview(""); return; }
+    const url = URL.createObjectURL(cover);
+    setCoverPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [cover]);
+
+  function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Background must be an image.");
+      return;
+    }
+    setError("");
+    setCover(file);
+  }
+
+  function clearCover() {
+    setCover(null);
+    if (coverInputRef.current) coverInputRef.current.value = "";
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,17 +83,28 @@ export default function CreatePage() {
     }
 
     setLoading(true);
+
+    let coverBlob: Blob | null = null;
+    if (cover) {
+      try {
+        coverBlob = await downscaleImage(cover);
+      } catch {
+        setError("Could not process that background image. Try a different one.");
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
-      const res = await fetch("/api/events/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          host_password: password.trim(),
-          max_shots: maxShots,
-          max_guests: maxGuests,
-        }),
-      });
+      const fd = new FormData();
+      fd.append("name", name.trim());
+      fd.append("host_password", password.trim());
+      fd.append("max_shots", String(maxShots));
+      fd.append("max_guests", String(maxGuests));
+
+      if (coverBlob) fd.append("cover", coverBlob, "cover.jpg");
+
+      const res = await fetch("/api/events/create", { method: "POST", body: fd });
       const data = await res.json();
 
       if (!data.success) {
@@ -93,6 +162,53 @@ export default function CreatePage() {
               maxLength={100}
             />
             <p className="text-text-muted text-xs">Keep this safe — it unlocks the photos for everyone.</p>
+          </div>
+
+          {/* Background image */}
+          <div className="space-y-2">
+            <label className="text-text-muted text-xs uppercase tracking-widest">
+              Background photo <span className="normal-case">(optional)</span>
+            </label>
+
+            {coverPreview ? (
+              <div className="relative rounded-lg overflow-hidden border border-accent/30 aspect-[3/2]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={coverPreview} alt="Background preview" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-b from-background/50 to-background/85" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-text-primary font-bold text-lg drop-shadow">
+                    {name.trim() || "Your event"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearCover}
+                  className="absolute top-2 right-2 py-1 px-2.5 bg-background/80 border border-text-muted/30 text-text-muted text-[11px] font-mono rounded hover:text-accent hover:border-accent transition-colors"
+                >
+                  REMOVE
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => coverInputRef.current?.click()}
+                className="w-full py-6 bg-surface border border-dashed border-text-muted rounded-lg text-text-muted text-sm hover:border-accent hover:text-accent transition-colors"
+              >
+                + Add a background photo
+              </button>
+            )}
+
+            <p className="text-text-muted text-xs">
+              Shown behind the join and gallery pages. JPEG, PNG, or WebP.
+            </p>
+
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handleCoverChange}
+            />
           </div>
 
           {/* Shots per guest */}

@@ -35,17 +35,22 @@ Copy `.env.local.example` → `.env.local` and fill in:
 
 ## Database setup (run in Supabase SQL Editor)
 
+Safe to re-run — every statement is guarded, so it only creates what is missing.
+The SQL Editor runs a script as one transaction: if any statement errors, the whole
+script rolls back and nothing is created.
+
 ```sql
-create table events (
+create table if not exists events (
   id uuid primary key default gen_random_uuid(),
   code text unique not null,
   name text not null,
   host_password text not null,
   developed boolean default false,
+  cover_path text,
   created_at timestamptz default now()
 );
 
-create table photos (
+create table if not exists photos (
   id uuid primary key default gen_random_uuid(),
   event_code text references events(code),
   guest_name text not null,
@@ -53,14 +58,29 @@ create table photos (
   created_at timestamptz default now()
 );
 
-create table reviews (
+create table if not exists reviews (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   rating int not null check (rating between 1 and 5),
   body text not null,
+  improvements text,
   created_at timestamptz default now()
 );
 ```
+
+**Migration for an existing database** — safe to re-run, and the only block you need
+if the tables are already there:
+
+```sql
+alter table reviews add column if not exists improvements text;
+alter table events  add column if not exists cover_path text;
+```
+
+Event background images live in the same `photos` bucket under `covers/<CODE>.<ext>`.
+Galleries read from the `photos` table, so a cover never appears as an event photo.
+
+`events.host_password` stores a scrypt hash (`scrypt$salt$hash`) written by `lib/password.ts`.
+Rows created before hashing hold a plaintext password and still verify, so old events keep working.
 
 Also create a `photos` storage bucket set to **public** in Supabase Storage.
 Disable RLS on all tables (or make policies permissive for anon role).
@@ -69,14 +89,15 @@ Disable RLS on all tables (or make policies permissive for anon role).
 
 | Method | Route | Description |
 |---|---|---|
-| POST | `/api/events/create` | Create event → `{ code }` |
-| GET | `/api/events/[code]` | Get event `{ name, developed }` |
+| POST | `/api/events/create` | Create event (multipart: name, host_password, max_shots, max_guests, optional `cover`) → `{ code }` |
+| GET | `/api/events/[code]` | Get event `{ name, developed, maxShots, maxGuests, coverUrl }` |
 | POST | `/api/events/[code]/develop` | Verify password, set developed=true |
+| POST | `/api/events/[code]/verify` | Check host password without side effects (admin mode) |
 | GET | `/api/events/[code]/photos` | Photos (real URLs only after developed) |
 | GET | `/api/events/[code]/stats` | `{ photoCount, guestCount, developed, guestShots? }` |
 | POST | `/api/photos/upload` | Multipart upload (image, eventCode, guestName) |
 | GET | `/api/reviews` | List reviews, newest first |
-| POST | `/api/reviews` | Submit a review `{ name, rating, body }`, shown immediately |
+| POST | `/api/reviews` | Submit a review `{ name, rating, body, improvements? }`, shown immediately |
 
 ## Page map
 

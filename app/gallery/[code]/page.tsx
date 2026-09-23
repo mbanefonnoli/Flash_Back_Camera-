@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import type { PhotoWithUrl } from "@/lib/supabase";
 import PhotoGrid from "@/components/PhotoGrid";
+import ReviewPrompt from "@/components/ReviewPrompt";
+import EventBackground from "@/components/EventBackground";
 import Link from "next/link";
 
-type EventData = { name: string; developed: boolean };
+type EventData = { name: string; developed: boolean; coverUrl: string | null };
 
 export default function GuestGalleryPage({ params }: { params: { code: string } }) {
   const code = params.code.toUpperCase();
@@ -14,6 +16,11 @@ export default function GuestGalleryPage({ params }: { params: { code: string } 
   const [photos, setPhotos] = useState<PhotoWithUrl[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [guestName, setGuestName] = useState<string | null>(null);
+
+  useEffect(() => {
+    setGuestName(localStorage.getItem(`flashback_guest_${code}`));
+  }, [code]);
 
   useEffect(() => {
     async function load() {
@@ -76,7 +83,8 @@ export default function GuestGalleryPage({ params }: { params: { code: string } 
 
   if (!event?.developed) {
     return (
-      <main className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-center space-y-6">
+      <main className="min-h-screen flex flex-col items-center justify-center px-6 text-center space-y-6">
+        <EventBackground url={event?.coverUrl} intensity="strong" />
         <div className="space-y-2">
           <div className="text-5xl animate-pulse">🎞️</div>
           <h1 className="text-2xl font-bold text-text-primary">Film not developed yet</h1>
@@ -98,7 +106,8 @@ export default function GuestGalleryPage({ params }: { params: { code: string } 
   }
 
   return (
-    <main className="min-h-screen bg-background pb-12">
+    <main className="min-h-screen pb-12">
+      <EventBackground url={event.coverUrl} intensity="strong" />
       <div className="sticky top-0 z-10 bg-background/90 backdrop-blur border-b border-surface px-4 py-3 text-center">
         <h1 className="text-text-primary font-bold text-lg">{event.name}</h1>
         <p className="text-text-muted text-xs font-mono">{photos.length} photos revealed</p>
@@ -114,6 +123,8 @@ export default function GuestGalleryPage({ params }: { params: { code: string } 
       </div>
 
       <PhotoGrid photos={photos} zipName={`flashback-${code}`} />
+
+      <ReviewPrompt name={guestName} />
     </main>
   );
 }

@@ -3,8 +3,15 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import EventBackground from "@/components/EventBackground";
 
-type EventData = { name: string; developed: boolean; maxShots: number; maxGuests: number };
+type EventData = {
+  name: string;
+  developed: boolean;
+  maxShots: number;
+  maxGuests: number;
+  coverUrl: string | null;
+};
 
 export default function JoinPage({ params }: { params: { code: string } }) {
   const router = useRouter();
@@ -90,7 +97,8 @@ export default function JoinPage({ params }: { params: { code: string } }) {
   const maxShots = event.maxShots ?? 27;
 
   return (
-    <main className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
+    <main className="min-h-screen flex flex-col items-center justify-center px-6">
+      <EventBackground url={event.coverUrl} />
       <div className="max-w-sm w-full space-y-8 text-center">
         <div className="space-y-2">
           <div className="text-accent font-mono text-xs uppercase tracking-widest">{code}</div>

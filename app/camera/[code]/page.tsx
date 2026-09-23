@@ -175,7 +175,7 @@ export default function CameraPage({ params }: { params: { code: string } }) {
     );
   }
 
-  if (remaining === 0) {
+  if (remaining <= 0) {
     return (
       <main className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-center space-y-6">
         <span className="text-6xl">🎞️</span>
@@ -283,11 +283,11 @@ export default function CameraPage({ params }: { params: { code: string } }) {
 
       {/* Film counter + Shutter */}
       <div className="w-full max-w-sm flex items-center justify-between mt-4">
-        <FilmCounter remaining={remaining} total={maxShots} />
+        <FilmCounter remaining={Math.max(remaining, 0)} total={maxShots} />
 
         <button
           onClick={useFallback ? () => fileInputRef.current?.click() : captureFromVideo}
-          disabled={uploading || !cameraReady || remaining === 0}
+          disabled={uploading || !cameraReady || remaining <= 0}
           className="w-20 h-20 rounded-full bg-accent border-4 border-background shadow-lg shadow-accent/30 flex items-center justify-center hover:bg-amber-400 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           aria-label="Take photo"
         >

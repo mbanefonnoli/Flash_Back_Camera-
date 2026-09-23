@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
+import { rateLimit, clientKey } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -7,7 +8,7 @@ export async function GET() {
   const supabase = createServerClient();
   const { data, error } = await supabase
     .from("reviews")
-    .select("id, name, rating, body, created_at")
+    .select("id, name, rating, body, improvements, created_at")
     .order("created_at", { ascending: false })
     .limit(50);
 
@@ -19,10 +20,18 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { name, rating, body } = await request.json();
+  if (!rateLimit(clientKey(request, "reviews"), 3, 60 * 60_000)) {
+    return NextResponse.json(
+      { success: false, error: "You've already posted a review recently. Thanks!" },
+      { status: 429 }
+    );
+  }
+
+  const { name, rating, body, improvements } = await request.json();
 
   const trimmedName = typeof name === "string" ? name.trim() : "";
   const trimmedBody = typeof body === "string" ? body.trim() : "";
+  const trimmedImprovements = typeof improvements === "string" ? improvements.trim() : "";
   const ratingNum = Number(rating);
 
   if (!trimmedName || !trimmedBody) {
@@ -34,12 +43,16 @@ export async function POST(request: Request) {
   if (trimmedName.length > 60 || trimmedBody.length > 500) {
     return NextResponse.json({ success: false, error: "Name or review text is too long." }, { status: 400 });
   }
+  if (trimmedImprovements.length > 500) {
+    return NextResponse.json({ success: false, error: "Suggestion is too long." }, { status: 400 });
+  }
 
   const supabase = createServerClient();
   const { error } = await supabase.from("reviews").insert({
     name: trimmedName,
     rating: ratingNum,
     body: trimmedBody,
+    improvements: trimmedImprovements || null,
   });
 
   if (error) {

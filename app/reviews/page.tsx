@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-type Review = { id: string; name: string; rating: number; body: string; created_at: string };
+type Review = {
+  id: string;
+  name: string;
+  rating: number;
+  body: string;
+  improvements: string | null;
+  created_at: string;
+};
 
 function Stars({ value }: { value: number }) {
   return (
@@ -20,7 +27,9 @@ export default function ReviewsPage() {
   const [name, setName] = useState("");
   const [rating, setRating] = useState(5);
   const [text, setText] = useState("");
+  const [improvements, setImprovements] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
 
   async function load() {
@@ -32,6 +41,9 @@ export default function ReviewsPage() {
 
   useEffect(() => {
     load();
+    // Prefilled when arriving from a gallery, so guests don't retype their name.
+    const remembered = localStorage.getItem("flashback_review_name");
+    if (remembered) setName(remembered);
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -47,7 +59,12 @@ export default function ReviewsPage() {
       const res = await fetch("/api/reviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), rating, body: text.trim() }),
+        body: JSON.stringify({
+          name: name.trim(),
+          rating,
+          body: text.trim(),
+          improvements: improvements.trim(),
+        }),
       });
       const json = await res.json();
       if (!json.success) {
@@ -56,7 +73,10 @@ export default function ReviewsPage() {
       }
       setName("");
       setText("");
+      setImprovements("");
       setRating(5);
+      setSubmitted(true);
+      localStorage.removeItem("flashback_review_name");
       await load();
     } catch {
       setError("Network error. Please try again.");
@@ -73,7 +93,9 @@ export default function ReviewsPage() {
             ← Home
           </Link>
           <h1 className="text-3xl font-bold text-text-primary mt-2">Reviews</h1>
-          <p className="text-text-muted text-sm">What hosts are saying about Flashback.</p>
+          <p className="text-text-muted text-sm">
+            Hosts and guests on what Flashback got right — and what we should fix.
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 bg-surface rounded-2xl p-5 border border-text-muted/10">
@@ -113,12 +135,29 @@ export default function ReviewsPage() {
               onChange={(e) => setText(e.target.value)}
               maxLength={500}
               rows={4}
-              placeholder="Tell other hosts what your event was like…"
+              placeholder="Tell others what your event was like…"
+              className="w-full py-3 px-4 bg-background border border-text-muted text-text-primary rounded-lg placeholder:text-text-muted focus:outline-none focus:border-accent resize-none"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-text-muted text-xs uppercase tracking-widest">
+              What could we improve? <span className="normal-case">(optional)</span>
+            </label>
+            <textarea
+              value={improvements}
+              onChange={(e) => setImprovements(e.target.value)}
+              maxLength={500}
+              rows={3}
+              placeholder="Anything that felt clunky, missing, or confusing…"
               className="w-full py-3 px-4 bg-background border border-text-muted text-text-primary rounded-lg placeholder:text-text-muted focus:outline-none focus:border-accent resize-none"
             />
           </div>
 
           {error && <p className="text-red-400 text-sm">{error}</p>}
+          {submitted && !error && (
+            <p className="text-accent text-sm">Thanks — your review is live below.</p>
+          )}
 
           <button
             type="submit"
@@ -144,6 +183,14 @@ export default function ReviewsPage() {
                   <Stars value={r.rating} />
                 </div>
                 <p className="text-text-muted text-sm leading-relaxed">{r.body}</p>
+                {r.improvements && (
+                  <div className="pt-2 mt-2 border-t border-text-muted/10">
+                    <p className="text-accent/80 text-[10px] font-mono uppercase tracking-widest mb-1">
+                      Could be better
+                    </p>
+                    <p className="text-text-muted text-sm leading-relaxed">{r.improvements}</p>
+                  </div>
+                )}
               </div>
             ))
           )}

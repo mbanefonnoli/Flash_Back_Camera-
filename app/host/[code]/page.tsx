@@ -3,9 +3,16 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import QRCodeDisplay from "@/components/QRCodeDisplay";
+import EventBackground from "@/components/EventBackground";
 import Link from "next/link";
 
-type EventData = { name: string; developed: boolean; maxShots: number; maxGuests: number };
+type EventData = {
+  name: string;
+  developed: boolean;
+  maxShots: number;
+  maxGuests: number;
+  coverUrl: string | null;
+};
 type Stats = { photoCount: number; guestCount: number; developed: boolean };
 
 export default function HostDashboard({ params }: { params: { code: string } }) {
@@ -100,7 +107,8 @@ export default function HostDashboard({ params }: { params: { code: string } }) 
     : `${stats.guestCount}`;
 
   return (
-    <main className="min-h-screen bg-background pb-24">
+    <main className="min-h-screen pb-24">
+      <EventBackground url={event.coverUrl} intensity="strong" />
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background/90 backdrop-blur border-b border-surface px-4 py-3 flex items-center justify-between">
         <div>
