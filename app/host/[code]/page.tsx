@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import QRCodeDisplay from "@/components/QRCodeDisplay";
 import EventBackground from "@/components/EventBackground";
+import PasswordResetModal from "@/components/PasswordResetModal";
 import Link from "next/link";
 
 type EventData = {
@@ -26,6 +27,7 @@ export default function HostDashboard({ params }: { params: { code: string } }) 
   const [password, setPassword] = useState("");
   const [developing, setDeveloping] = useState(false);
   const [pwError, setPwError] = useState("");
+  const [showReset, setShowReset] = useState(false);
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -199,6 +201,13 @@ export default function HostDashboard({ params }: { params: { code: string } }) 
                 autoFocus
               />
               {pwError && <p className="text-red-400 text-sm">{pwError}</p>}
+              <button
+                type="button"
+                onClick={() => { setShowModal(false); setPwError(""); setShowReset(true); }}
+                className="text-text-muted text-xs hover:text-accent transition-colors"
+              >
+                Forgot your password?
+              </button>
               <div className="flex gap-3">
                 <button
                   type="button"
@@ -218,6 +227,18 @@ export default function HostDashboard({ params }: { params: { code: string } }) 
             </form>
           </div>
         </div>
+      )}
+
+      {showReset && (
+        <PasswordResetModal
+          code={code}
+          onClose={() => setShowReset(false)}
+          onReset={(next) => {
+            setShowReset(false);
+            setPassword(next);
+            setShowModal(true);
+          }}
+        />
       )}
     </main>
   );

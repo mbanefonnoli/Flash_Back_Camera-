@@ -45,6 +45,7 @@ create table if not exists events (
   code text unique not null,
   name text not null,
   host_password text not null,
+  recovery_hash text,
   developed boolean default false,
   cover_path text,
   created_at timestamptz default now()
@@ -74,6 +75,7 @@ if the tables are already there:
 ```sql
 alter table reviews add column if not exists improvements text;
 alter table events  add column if not exists cover_path text;
+alter table events  add column if not exists recovery_hash text;
 ```
 
 Event background images live in the same `photos` bucket under `covers/<CODE>.<ext>`.
@@ -93,6 +95,7 @@ Disable RLS on all tables (or make policies permissive for anon role).
 | GET | `/api/events/[code]` | Get event `{ name, developed, maxShots, maxGuests, coverUrl }` |
 | POST | `/api/events/[code]/develop` | Verify password, set developed=true |
 | POST | `/api/events/[code]/verify` | Check host password without side effects (admin mode) |
+| POST | `/api/events/[code]/recover` | Reset host password with the recovery code issued at creation |
 | GET | `/api/events/[code]/photos` | Photos (real URLs only after developed) |
 | GET | `/api/events/[code]/stats` | `{ photoCount, guestCount, developed, guestShots? }` |
 | POST | `/api/photos/upload` | Multipart upload (image, eventCode, guestName) |

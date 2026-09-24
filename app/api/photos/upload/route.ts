@@ -4,7 +4,7 @@ import { getPublicUrl } from "@/lib/supabase-public";
 import { rateLimit, clientKey } from "@/lib/rate-limit";
 import { CONTENT_TYPES, sniffImageType } from "@/lib/image";
 
-const MAX_BYTES = 12 * 1024 * 1024;
+const MAX_BYTES = 20 * 1024 * 1024;
 const MAX_GUEST_NAME = 40;
 
 export async function POST(request: Request) {
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 
   if (image.size > MAX_BYTES) {
     return NextResponse.json(
-      { success: false, error: "Photo is too large (12MB max)." },
+      { success: false, error: "Photo is too large (20MB max)." },
       { status: 400 }
     );
   }

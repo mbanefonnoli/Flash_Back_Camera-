@@ -6,6 +6,7 @@ import type { PhotoWithUrl } from "@/lib/supabase";
 import PhotoGrid from "@/components/PhotoGrid";
 import ReviewPrompt from "@/components/ReviewPrompt";
 import EventBackground from "@/components/EventBackground";
+import PasswordResetModal from "@/components/PasswordResetModal";
 import Link from "next/link";
 
 type EventData = { name: string; developed: boolean; coverUrl: string | null };
@@ -25,6 +26,7 @@ export default function HostGalleryPage({ params }: { params: { code: string } }
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState("");
   const [verifying, setVerifying] = useState(false);
+  const [showReset, setShowReset] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -169,6 +171,13 @@ export default function HostGalleryPage({ params }: { params: { code: string } }
                 autoFocus
               />
               {pwError && <p className="text-red-400 text-sm">{pwError}</p>}
+              <button
+                type="button"
+                onClick={() => { setShowPwModal(false); setPwError(""); setShowReset(true); }}
+                className="text-text-muted text-xs hover:text-accent transition-colors"
+              >
+                Forgot your password?
+              </button>
               <div className="flex gap-3">
                 <button
                   type="button"
@@ -188,6 +197,18 @@ export default function HostGalleryPage({ params }: { params: { code: string } }
             </form>
           </div>
         </div>
+      )}
+
+      {showReset && (
+        <PasswordResetModal
+          code={code}
+          onClose={() => setShowReset(false)}
+          onReset={(next) => {
+            setShowReset(false);
+            setAdminPassword(next);
+            setAdminMode(true);
+          }}
+        />
       )}
     </main>
   );

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { createServerClient } from "@/lib/supabase-server";
 import { hashPassword } from "@/lib/password";
 import { rateLimit, clientKey } from "@/lib/rate-limit";
@@ -8,8 +9,18 @@ const SHOT_OPTIONS = [12, 24, 27, 36];
 const MAX_GUESTS_ALLOWED = 500;
 const MAX_COVER_BYTES = 8 * 1024 * 1024;
 
+// No I, L, O, 0 or 1 — these get misread when a host copies the code by hand.
+const RECOVERY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
 function randomCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+function randomRecoveryCode() {
+  const bytes = randomBytes(12);
+  let out = "";
+  for (let i = 0; i < 12; i++) out += RECOVERY_ALPHABET[bytes[i] % RECOVERY_ALPHABET.length];
+  return `${out.slice(0, 4)}-${out.slice(4, 8)}-${out.slice(8, 12)}`;
 }
 
 export async function POST(request: Request) {
@@ -102,10 +113,13 @@ export async function POST(request: Request) {
     }
   }
 
+  const recoveryCode = randomRecoveryCode();
+
   const { error } = await supabase.from("events").insert({
     code,
     name,
     host_password: await hashPassword(hostPassword),
+    recovery_hash: await hashPassword(recoveryCode),
     developed: false,
     max_shots: shots,
     max_guests: guests,
@@ -117,5 +131,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true, data: { code } });
+  // Only time the recovery code is ever readable — the DB holds a hash.
+  return NextResponse.json({ success: true, data: { code, recoveryCode } });
 }

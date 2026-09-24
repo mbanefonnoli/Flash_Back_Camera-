@@ -47,6 +47,9 @@ export default function CreatePage() {
   const [coverPreview, setCoverPreview] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [created, setCreated] = useState<{ code: string; recoveryCode: string } | null>(null);
+  const [savedConfirmed, setSavedConfirmed] = useState(false);
+  const [copied, setCopied] = useState(false);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -112,12 +115,77 @@ export default function CreatePage() {
         return;
       }
 
-      router.push(`/host/${data.data.code}`);
+      setCreated({ code: data.data.code, recoveryCode: data.data.recoveryCode });
     } catch {
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
+  }
+
+  if (created) {
+    return (
+      <main className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
+        <div className="max-w-sm w-full space-y-6">
+          <div className="space-y-2 text-center">
+            <div className="text-accent text-4xl">🎞️</div>
+            <h1 className="text-2xl font-bold text-text-primary">Event created</h1>
+            <p className="text-text-muted text-sm">
+              Save this recovery code somewhere safe. It is the only way back in if you
+              forget your host password.
+            </p>
+          </div>
+
+          <div className="bg-surface border border-accent/40 rounded-2xl p-5 space-y-3">
+            <p className="text-text-muted text-[10px] font-mono uppercase tracking-widest text-center">
+              Recovery code
+            </p>
+            <p className="text-accent font-mono text-xl font-bold tracking-[2px] text-center select-all break-all">
+              {created.recoveryCode}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(created.recoveryCode);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="w-full py-2.5 bg-accent/10 border border-accent/30 text-accent text-xs font-mono uppercase tracking-widest rounded-lg hover:bg-accent hover:text-background transition-colors"
+            >
+              {copied ? "Copied" : "Copy code"}
+            </button>
+          </div>
+
+          <div className="bg-red-500/10 border border-red-500/25 rounded-lg p-3">
+            <p className="text-red-400 text-xs leading-relaxed">
+              You will never see this code again. We store a scrambled copy only, so we
+              cannot send it to you later.
+            </p>
+          </div>
+
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={savedConfirmed}
+              onChange={(e) => setSavedConfirmed(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-[#F5A623] flex-shrink-0"
+            />
+            <span className="text-text-muted text-sm">
+              I have saved my recovery code somewhere safe.
+            </span>
+          </label>
+
+          <button
+            type="button"
+            disabled={!savedConfirmed}
+            onClick={() => router.push(`/host/${created.code}`)}
+            className="w-full py-4 bg-accent text-background font-semibold text-lg rounded-viewfinder hover:bg-amber-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Continue to dashboard →
+          </button>
+        </div>
+      </main>
+    );
   }
 
   return (
