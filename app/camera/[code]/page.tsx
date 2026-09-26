@@ -19,6 +19,8 @@ const QUALITY_OPTIONS = [
 ] as const;
 
 const QUALITY_KEY = "flashback_jpeg_quality";
+const UPLOAD_TIMEOUT_MS = 90_000;
+const RETRY_INTERVAL_MS = 8000;
 
 type ShotInfo = { width: number; height: number; bytes: number; quality: number };
 
@@ -48,11 +50,21 @@ async function sendShot(code: string, guestName: string, blob: Blob): Promise<Se
   fd.append("eventCode", code);
   fd.append("guestName", guestName);
 
+  // A stalled request never settles on its own, which would wedge the retry loop.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+
   let res: Response;
   try {
-    res = await fetch("/api/photos/upload", { method: "POST", body: fd });
+    res = await fetch("/api/photos/upload", {
+      method: "POST",
+      body: fd,
+      signal: controller.signal,
+    });
   } catch {
     return { status: "failed" };
+  } finally {
+    clearTimeout(timer);
   }
 
   if (res.status >= 500 || res.status === 429) return { status: "failed" };
@@ -89,10 +101,12 @@ export default function CameraPage({ params }: { params: { code: string } }) {
   const [cameraReady, setCameraReady] = useState(false);
   const [useFallback, setUseFallback] = useState(false);
   const [filter, setFilter] = useState<"standard" | "vintage" | "bw">("standard");
+  const [showFilters, setShowFilters] = useState(false);
   const [quality, setQuality] = useState(0.9);
   const [streamRes, setStreamRes] = useState("");
   const [lastShot, setLastShot] = useState<ShotInfo | null>(null);
   const [pending, setPending] = useState(0);
+  const [flushing, setFlushing] = useState(false);
   const flushingRef = useRef(false);
 
   useEffect(() => {
@@ -139,37 +153,37 @@ export default function CameraPage({ params }: { params: { code: string } }) {
     init();
   }, [code, router]);
 
-  // Start camera
+  const startCamera = useCallback(async () => {
+    try {
+      // Without an explicit request browsers hand back ~640x480, which is why
+      // captured shots looked soft. "ideal" lets the device fall back gracefully.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 4096 },
+          height: { ideal: 3072 },
+        },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", "");
+        videoRef.current.setAttribute("muted", "");
+        await videoRef.current.play();
+        setStreamRes(`${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
+        setCameraReady(true);
+        setUseFallback(false);
+        setError("");
+      }
+    } catch {
+      setUseFallback(true);
+      setCameraReady(true);
+    }
+  }, []);
+
   useEffect(() => {
     if (!event) return;
-
-    async function startCamera() {
-      try {
-        // Without an explicit request browsers hand back ~640x480, which is why
-        // captured shots looked soft. "ideal" lets the device fall back gracefully.
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "environment",
-            width: { ideal: 4096 },
-            height: { ideal: 3072 },
-          },
-          audio: false,
-        });
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.setAttribute("playsinline", "");
-          videoRef.current.setAttribute("muted", "");
-          await videoRef.current.play();
-          setStreamRes(`${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
-          setCameraReady(true);
-        }
-      } catch {
-        setUseFallback(true);
-        setCameraReady(true);
-      }
-    }
-
     startCamera();
     return () => {
       if (streamRef.current) {
@@ -177,7 +191,40 @@ export default function CameraPage({ params }: { params: { code: string } }) {
         streamRef.current = null;
       }
     };
-  }, [event]);
+  }, [event, startCamera]);
+
+  // Phones suspend the video element — and often kill the camera track outright —
+  // while the tab is in the background, leaving a frozen viewfinder on return.
+  useEffect(() => {
+    async function resume() {
+      if (document.visibilityState !== "visible" || useFallback) return;
+
+      const track = streamRef.current?.getVideoTracks()[0];
+      if (!track || track.readyState === "ended") {
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        await startCamera();
+        return;
+      }
+
+      if (videoRef.current?.paused) {
+        try {
+          await videoRef.current.play();
+        } catch {
+          await startCamera();
+        }
+      }
+    }
+
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("focus", resume);
+    window.addEventListener("pageshow", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("focus", resume);
+      window.removeEventListener("pageshow", resume);
+    };
+  }, [startCamera, useFallback]);
 
   const uploadBlob = useCallback(
     async (blob: Blob) => {
@@ -210,6 +257,7 @@ export default function CameraPage({ params }: { params: { code: string } }) {
   const flushQueue = useCallback(async () => {
     if (!guestName || flushingRef.current) return;
     flushingRef.current = true;
+    setFlushing(true);
 
     try {
       const queued = await listQueuedShots(code);
@@ -227,6 +275,7 @@ export default function CameraPage({ params }: { params: { code: string } }) {
       }
     } finally {
       flushingRef.current = false;
+      setFlushing(false);
     }
   }, [code, guestName]);
 
@@ -235,7 +284,7 @@ export default function CameraPage({ params }: { params: { code: string } }) {
     flushQueue();
 
     window.addEventListener("online", flushQueue);
-    const interval = setInterval(flushQueue, 20000);
+    const interval = setInterval(flushQueue, RETRY_INTERVAL_MS);
     return () => {
       window.removeEventListener("online", flushQueue);
       clearInterval(interval);
@@ -246,6 +295,14 @@ export default function CameraPage({ params }: { params: { code: string } }) {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
+
+    // A backgrounded tab can leave the track dead; capturing now saves a blank frame.
+    if (!video.videoWidth || !video.videoHeight || video.paused) {
+      setError("Camera went to sleep — waking it up, try again in a second.");
+      await startCamera();
+      return;
+    }
+
     const { sx, sy, sw, sh } = coverCrop(video.videoWidth, video.videoHeight);
     const ratio = Math.min(MAX_DIM / sw, MAX_DIM / sh, 1);
     canvas.width = Math.round(sw * ratio);
@@ -264,7 +321,7 @@ export default function CameraPage({ params }: { params: { code: string } }) {
       "image/jpeg",
       quality
     );
-  }, [uploadBlob, filter, quality]);
+  }, [uploadBlob, filter, quality, startCamera]);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -344,142 +401,120 @@ export default function CameraPage({ params }: { params: { code: string } }) {
             autoPlay
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-text-muted">
-            <span className="text-center text-sm px-4">Camera unavailable — use the button below to pick a photo</span>
+          <div className="w-full h-full flex flex-col items-center justify-center text-text-muted gap-2 px-6 text-center">
+            <span className="text-3xl">📷</span>
+            <span className="text-sm">Tap the shutter to use your phone camera</span>
+            <span className="text-[11px] text-text-muted/60">
+              The in-app viewfinder needs an https:// address
+            </span>
           </div>
         )}
-
-        {/* Retro glass/lens reflections and scanline overlay */}
-        <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/0 pointer-events-none" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_40%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
-
-        {/* Retro Viewport Overlays */}
-        <div className="absolute inset-x-4 top-3 flex justify-between items-center text-[10px] font-mono text-accent/80 drop-shadow-md pointer-events-none select-none">
-          <div className="flex items-center gap-1">
-            <span className="border border-accent/80 px-1 rounded-sm text-[8px]">ISO 400</span>
-            <span>24FPS</span>
-          </div>
-          <div>
-            <span>[|||] 87%</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span>⚡ AUTO</span>
-          </div>
-        </div>
-
-        <div className="absolute inset-x-4 bottom-3 flex justify-between items-center text-[10px] font-mono text-accent/80 drop-shadow-md pointer-events-none select-none">
-          <span>F/2.8</span>
-          <span>1/125s</span>
-          <span>EV -0.3</span>
-        </div>
 
         {flashing && (
           <div className="absolute inset-0 bg-white animate-flash pointer-events-none" />
         )}
 
-        {["top-3 left-3", "top-3 right-3", "bottom-3 left-3", "bottom-3 right-3"].map((pos, i) => (
-          <div
-            key={i}
-            className={`absolute ${pos} w-5 h-5 border-accent opacity-60 pointer-events-none ${
-              i === 0 ? "border-t-2 border-l-2" :
-              i === 1 ? "border-t-2 border-r-2" :
-              i === 2 ? "border-b-2 border-l-2" :
-                        "border-b-2 border-r-2"
-            }`}
-          />
-        ))}
-      </div>
+        {/* Filters live behind this so they never crowd the frame */}
+        <button
+          type="button"
+          onClick={() => setShowFilters((v) => !v)}
+          className={`absolute bottom-3 right-3 w-10 h-10 rounded-full border flex items-center justify-center backdrop-blur transition-colors ${
+            showFilters || filter !== "standard"
+              ? "bg-accent border-accent text-background"
+              : "bg-black/40 border-white/25 text-white"
+          }`}
+          aria-label="Photo filters"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5">
+            <circle cx="9" cy="9" r="6" />
+            <circle cx="15" cy="15" r="6" />
+          </svg>
+        </button>
 
-      {/* Filter Selector */}
-      <div className="w-full max-w-sm flex justify-center gap-2 mt-4">
-        {(["standard", "vintage", "bw"] as const).map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded-full text-xs font-mono border transition-colors ${
-              filter === f
-                ? "bg-accent text-background border-accent font-semibold"
-                : "bg-surface border-text-muted/30 text-text-muted hover:border-accent hover:text-accent"
-            }`}
-          >
-            {f === "standard" ? "Standard" : f === "vintage" ? "Vintage" : "B&W Film"}
-          </button>
-        ))}
-      </div>
-
-      {/* Quality tuning — remove once the right level is chosen */}
-      <div className="w-full max-w-sm mt-3 space-y-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-text-muted text-[10px] font-mono uppercase tracking-widest">
-            Photo quality
-          </span>
-          <span className="text-text-muted text-[10px] font-mono">
-            {streamRes ? `camera: ${streamRes}` : "camera: —"}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-5 gap-1.5">
-          {QUALITY_OPTIONS.map((o) => (
-            <button
-              key={o.label}
-              type="button"
-              onClick={() => pickQuality(o.value)}
-              className={`py-1.5 rounded-md text-[11px] font-mono border transition-colors ${
-                quality === o.value
-                  ? "bg-accent text-background border-accent font-bold"
-                  : "bg-surface border-text-muted/30 text-text-muted hover:border-accent hover:text-accent"
-              }`}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-
-        {lastShot && (
-          <p className="text-text-muted text-[10px] font-mono text-center pt-0.5">
-            last shot: {lastShot.width}x{lastShot.height} ·{" "}
-            {(lastShot.bytes / 1024 / 1024).toFixed(2)} MB · q{Math.round(lastShot.quality * 100)}
-          </p>
+        {showFilters && (
+          <div className="absolute bottom-16 right-3 flex flex-col gap-1.5">
+            {(["standard", "vintage", "bw"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => { setFilter(f); setShowFilters(false); }}
+                className={`px-3 py-1.5 rounded-full text-xs font-mono border backdrop-blur transition-colors ${
+                  filter === f
+                    ? "bg-accent text-background border-accent font-semibold"
+                    : "bg-black/60 border-white/20 text-white"
+                }`}
+              >
+                {f === "standard" ? "Standard" : f === "vintage" ? "Vintage" : "B&W Film"}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
       {/* Film counter + Shutter */}
-      <div className="w-full max-w-sm flex items-center justify-between mt-4">
-        <FilmCounter remaining={Math.max(remaining, 0)} total={maxShots} />
+      <div className="w-full max-w-sm flex items-center justify-between mt-5">
+        <FilmCounter remaining={Math.max(remaining, 0)} />
 
         <button
           onClick={useFallback ? () => fileInputRef.current?.click() : captureFromVideo}
           disabled={uploading || !cameraReady || remaining <= 0}
-          className="w-20 h-20 rounded-full bg-accent border-4 border-background shadow-lg shadow-accent/30 flex items-center justify-center hover:bg-amber-400 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-[84px] h-[84px] rounded-full bg-accent border-4 border-background shadow-lg shadow-accent/30 flex items-center justify-center hover:bg-amber-400 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           aria-label="Take photo"
         >
           {uploading ? (
             <div className="w-6 h-6 border-2 border-background border-t-transparent rounded-full animate-spin" />
           ) : (
-            <div className="w-8 h-8 rounded-full bg-background/20" />
+            <div className="w-9 h-9 rounded-full bg-background/20" />
           )}
         </button>
 
-        <div className="text-right">
-          <p className="text-text-muted text-xs font-mono">{shotsTaken + pending} taken</p>
-          {pending > 0 && (
-            <p className="text-accent text-[10px] font-mono">{pending} to upload</p>
-          )}
-        </div>
+        <div className="w-10" aria-hidden="true" />
       </div>
 
-      {pending > 0 && (
-        <div className="w-full max-w-sm mt-2 flex items-center justify-center gap-2 bg-accent/10 border border-accent/25 rounded-lg py-2 px-3">
-          <div className="w-2 h-2 rounded-full bg-accent animate-pulse flex-shrink-0" />
-          <p className="text-accent text-xs">
-            {pending} photo{pending === 1 ? "" : "s"} saved on your phone — they&apos;ll upload
-            when the signal is back.
-          </p>
-        </div>
-      )}
+      {/* Status line — only ever one message at a time */}
+      <div className="w-full max-w-sm mt-3 min-h-[20px] flex items-center justify-center">
+        {error ? (
+          <p className="text-red-400 text-xs text-center">{error}</p>
+        ) : pending > 0 ? (
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+            <p className="text-accent text-xs">
+              {flushing ? `Uploading ${pending}…` : `${pending} waiting to upload`}
+            </p>
+          </div>
+        ) : null}
+      </div>
 
-      {error && <p className="text-red-400 text-xs text-center max-w-sm mt-2">{error}</p>}
+      {/* Quality tuning — temporary, remove once a level is locked in */}
+      <details className="w-full max-w-sm mt-2">
+        <summary className="text-text-muted/60 text-[10px] font-mono uppercase tracking-widest cursor-pointer list-none text-center">
+          quality · {streamRes || "no camera"}
+        </summary>
+        <div className="mt-2 space-y-1.5">
+          <div className="grid grid-cols-5 gap-1.5">
+            {QUALITY_OPTIONS.map((o) => (
+              <button
+                key={o.label}
+                type="button"
+                onClick={() => pickQuality(o.value)}
+                className={`py-1.5 rounded-md text-[11px] font-mono border transition-colors ${
+                  quality === o.value
+                    ? "bg-accent text-background border-accent font-bold"
+                    : "bg-surface border-text-muted/30 text-text-muted"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {lastShot && (
+            <p className="text-text-muted text-[10px] font-mono text-center">
+              {lastShot.width}x{lastShot.height} · {(lastShot.bytes / 1024 / 1024).toFixed(2)} MB ·
+              q{Math.round(lastShot.quality * 100)}
+            </p>
+          )}
+        </div>
+      </details>
 
       <canvas ref={canvasRef} className="hidden" />
       <input
